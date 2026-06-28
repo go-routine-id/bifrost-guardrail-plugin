@@ -72,6 +72,10 @@ job "bifrost" {
         image        = var.image
         network_mode = "host"
 
+        # The image tag is mutable (CI rebuilds the same `<ver>-guardrail` tag), so always
+        # re-pull on (re)deploy to avoid running a stale cached image.
+        force_pull = true
+
         # Pull a private GHCR image. Credentials are interpolated from env vars
         # populated by the template below — no credentials live in this job spec.
         auth {
@@ -119,8 +123,8 @@ EOH
       }
 
       resources {
-        cpu    = 1000
-        memory = 1024
+        cpu    = 3000
+        memory = 3072
       }
     }
   }

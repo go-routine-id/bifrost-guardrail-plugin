@@ -16,6 +16,8 @@ const PluginName = "guardrail"
 
 const defaultBlockMessage = "Request blocked by guardrail policy."
 
+const defaultRateLimitMessage = "Ikavia Code Titans sedang menerima terlalu banyak permintaan (batas kapasitas/rate limit). Tunggu sekitar 10–30 detik lalu coba lagi. Ini bukan kesalahan kodemu."
+
 // Config is the JSON object under the plugin entry in config.json.
 type Config struct {
 	// SystemPrompt is injected into every inference request.
@@ -27,24 +29,31 @@ type Config struct {
 	BlockPatterns []string `json:"block_patterns"`
 	// BlockMessage is returned (HTTP 403) when a block pattern matches.
 	BlockMessage string `json:"block_message"`
+	// RateLimitMessage replaces the upstream provider's message on a 429 response,
+	// so users get a clear, white-label explanation without exposing the provider.
+	RateLimitMessage string `json:"rate_limit_message"`
 }
 
 // Plugin implements schemas.HTTPTransportPlugin.
 type Plugin struct {
-	systemPrompt string
-	override     bool
-	blockRes     []*regexp.Regexp
-	blockMessage string
+	systemPrompt     string
+	override         bool
+	blockRes         []*regexp.Regexp
+	blockMessage     string
+	rateLimitMessage string
 }
 
 // Init builds the plugin from its persisted config.
 func Init(c *Config) (schemas.BasePlugin, error) {
-	p := &Plugin{blockMessage: defaultBlockMessage}
+	p := &Plugin{blockMessage: defaultBlockMessage, rateLimitMessage: defaultRateLimitMessage}
 	if c != nil {
 		p.systemPrompt = strings.TrimSpace(c.SystemPrompt)
 		p.override = strings.EqualFold(strings.TrimSpace(c.SystemMode), "override")
 		if m := strings.TrimSpace(c.BlockMessage); m != "" {
 			p.blockMessage = m
+		}
+		if m := strings.TrimSpace(c.RateLimitMessage); m != "" {
+			p.rateLimitMessage = m
 		}
 		for _, pat := range c.BlockPatterns {
 			re, err := regexp.Compile(pat)
@@ -105,9 +114,40 @@ func (p *Plugin) HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.
 	return nil, nil
 }
 
-// HTTPTransportPostHook is a no-op (guardrail acts on the request only).
+// HTTPTransportPostHook rewrites an upstream 429 (rate limit) response message
+// into a clear, white-label message, preserving the response's JSON shape.
 func (p *Plugin) HTTPTransportPostHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest, resp *schemas.HTTPResponse) error {
+	if resp == nil || resp.StatusCode != 429 || p.rateLimitMessage == "" || len(resp.Body) == 0 {
+		return nil
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body, &body); err != nil {
+		return nil
+	}
+	if !replaceMessage(body, p.rateLimitMessage) {
+		return nil
+	}
+	if newBody, err := json.Marshal(body); err == nil {
+		resp.Body = newBody
+	}
 	return nil
+}
+
+// replaceMessage swaps the human-readable message in common error shapes
+// (Anthropic/OpenAI/Bifrost: {"error":{"message":...}}; or a top-level "message").
+// Returns true if a message field was replaced.
+func replaceMessage(body map[string]any, msg string) bool {
+	if errObj, ok := body["error"].(map[string]any); ok {
+		if _, has := errObj["message"]; has {
+			errObj["message"] = msg
+			return true
+		}
+	}
+	if _, has := body["message"]; has {
+		body["message"] = msg
+		return true
+	}
+	return false
 }
 
 // HTTPTransportStreamChunkHook passes chunks through unchanged.
