@@ -52,6 +52,29 @@ upstream releases a new version, `make update TAG=<new-tag>` re-applies everythi
 upstream plugin registry changed enough that the patch no longer applies, re-wire the two
 files by hand and run `make regen-patch` to refresh `wiring.patch` and `guardrail.go`.
 
+## CI: build & auto-deploy
+
+`.github/workflows/build-deploy.yml` builds the image on a GitHub runner, pushes it to
+GHCR (`ghcr.io/<org>/bifrost:<version>`), and can deploy it straight to Nomad via the
+HTTP API — no SSH needed.
+
+- **Build only**: run the workflow via *Actions → build-and-deploy → Run workflow* with
+  `deploy = false`, or just rely on it for a given upstream tag.
+- **Build + deploy**: run it with `deploy = true`, or push a `v*` git tag (treated as a
+  release). The deploy job runs `nomad job run -var "image=…" deploy/bifrost.nomad.hcl`.
+
+Required repository secrets:
+
+| Secret | Value |
+|--------|-------|
+| `NOMAD_ADDR` | Nomad API base URL, e.g. `https://nomad.example.com` |
+| `NOMAD_TOKEN` | A Nomad ACL token allowed to submit the `bifrost` job (scope it down) |
+
+The image carries no secrets (provider keys + `config.json` live on the Nomad host volume),
+so set the GHCR package visibility to **public** to let the Nomad node pull it without auth.
+`deploy/bifrost.nomad.hcl` takes the image as a variable and reads provider secrets from
+Nomad Variables at deploy time.
+
 ## Enabling the plugin
 
 The plugin is **opt-in**. Add an entry to your Bifrost `config.json`:
