@@ -70,10 +70,22 @@ Required repository secrets:
 | `NOMAD_ADDR` | Nomad API base URL, e.g. `https://nomad.example.com` |
 | `NOMAD_TOKEN` | A Nomad ACL token allowed to submit the `bifrost` job (scope it down) |
 
-The image carries no secrets (provider keys + `config.json` live on the Nomad host volume),
-so set the GHCR package visibility to **public** to let the Nomad node pull it without auth.
-`deploy/bifrost.nomad.hcl` takes the image as a variable and reads provider secrets from
-Nomad Variables at deploy time.
+The image carries no secrets (provider keys + `config.json` live on the Nomad host volume).
+The Nomad node still needs to pull it, so pick one:
+
+- **Public package** — set the GHCR package visibility to public; the node pulls without auth.
+- **Private package** — keep it private and let the node authenticate. `deploy/bifrost.nomad.hcl`
+  renders a Docker auth file from a Nomad Variable `ghcr_auth` (base64 of
+  `<github-username>:<PAT>`, PAT scoped to `read:packages`). Set it once:
+
+  ```sh
+  nomad var put nomad/jobs/bifrost \
+    ghcr_auth="$(printf '%s' '<github-username>:<PAT>' | base64)" \
+    kimi_api_key=… kimi_api_key_2=… bifrost_encryption_key=…
+  ```
+
+`deploy/bifrost.nomad.hcl` takes the image as a variable and reads all provider secrets and
+the GHCR auth from Nomad Variables at deploy time.
 
 ## Enabling the plugin
 
