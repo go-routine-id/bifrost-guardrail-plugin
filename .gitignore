@@ -1,0 +1,13 @@
+# Local upstream clone (point FORK_DIR here)
+/bifrost/
+
+# Build artifacts
+*.so
+/tmp/
+
+# Env / secrets
+.env
+.env.*
+
+# OS
+.DS_Store

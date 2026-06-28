@@ -1,0 +1,64 @@
+diff --git a/transports/bifrost-http/lib/config.go b/transports/bifrost-http/lib/config.go
+index d783cf2..089a3d6 100644
+--- a/transports/bifrost-http/lib/config.go
++++ b/transports/bifrost-http/lib/config.go
+@@ -49,6 +49,7 @@ import (
+ 	"github.com/maximhq/bifrost/plugins/prompts"
+ 	"github.com/maximhq/bifrost/plugins/semanticcache"
+ 	"github.com/maximhq/bifrost/plugins/telemetry"
++	"github.com/maximhq/bifrost/transports/bifrost-http/guardrail"
+ 	"gorm.io/gorm"
+ )
+ 
+@@ -130,6 +131,7 @@ var builtinPluginNames = []string{
+ 	semanticcache.PluginName,
+ 	compat.PluginName,
+ 	maxim.PluginName,
++	guardrail.PluginName,
+ }
+ 
+ func GetBuiltinPluginNames() []string {
+diff --git a/transports/bifrost-http/server/plugins.go b/transports/bifrost-http/server/plugins.go
+index d3a0d01..2065573 100644
+--- a/transports/bifrost-http/server/plugins.go
++++ b/transports/bifrost-http/server/plugins.go
+@@ -16,6 +16,7 @@ import (
+ 	"github.com/maximhq/bifrost/plugins/prompts"
+ 	"github.com/maximhq/bifrost/plugins/semanticcache"
+ 	"github.com/maximhq/bifrost/plugins/telemetry"
++	"github.com/maximhq/bifrost/transports/bifrost-http/guardrail"
+ 	"github.com/maximhq/bifrost/transports/bifrost-http/handlers"
+ 	"github.com/maximhq/bifrost/transports/bifrost-http/lib"
+ )
+@@ -125,6 +126,13 @@ func loadBuiltinPlugin(ctx context.Context, name string, pluginConfig any, bifro
+ 	case modelcatalogresolver.PluginName:
+ 		return modelcatalogresolver.Init(bifrostConfig.ModelCatalog, logger)
+ 
++	case guardrail.PluginName:
++		guardrailConfig, err := MarshalPluginConfig[guardrail.Config](pluginConfig)
++		if err != nil {
++			return nil, fmt.Errorf("failed to marshal guardrail plugin config: %w", err)
++		}
++		return guardrail.Init(guardrailConfig)
++
+ 	default:
+ 		return nil, fmt.Errorf("unknown built-in plugin: %s", name)
+ 	}
+@@ -260,7 +268,16 @@ func (s *BifrostHTTPServer) loadBuiltinPlugins(ctx context.Context) error {
+ 	}
+ 	s.Config.SetPluginOrderInfo(maxim.PluginName, builtinPlacement, schemas.Ptr(8))
+ 
+-	// 9. ModelCatalogResolver (last routing layer — fills req.Provider from catalog only when
++	// 9. Guardrail (if configured in PluginConfigs) — system-prompt injection + input block
++	guardrailConfig := s.getPluginConfig(guardrail.PluginName)
++	if guardrailConfig != nil && guardrailConfig.Enabled {
++		s.registerPluginWithStatus(ctx, guardrail.PluginName, nil, guardrailConfig.Config, false)
++	} else {
++		s.markPluginDisabled(guardrail.PluginName)
++	}
++	s.Config.SetPluginOrderInfo(guardrail.PluginName, builtinPlacement, schemas.Ptr(9))
++
++	// 10. ModelCatalogResolver (last routing layer — fills req.Provider from catalog only when
+ 	// no earlier routing plugin (governance routing rules, governance VK LB, enterprise LB)
+ 	// already set one. CEL rules can still match on provider == "" because this runs last.
+ 	// Requires a model catalog; only register when one is configured.
