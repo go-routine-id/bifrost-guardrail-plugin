@@ -75,12 +75,13 @@ The Nomad node still needs to pull it, so pick one:
 
 - **Public package** — set the GHCR package visibility to public; the node pulls without auth.
 - **Private package** — keep it private and let the node authenticate. `deploy/bifrost.nomad.hcl`
-  renders a Docker auth file from a Nomad Variable `ghcr_auth` (base64 of
-  `<github-username>:<PAT>`, PAT scoped to `read:packages`). Set it once:
+  feeds the Docker driver's `auth` stanza from a Nomad Variable: `ghcr_user` (a GitHub
+  username) and `ghcr_pass` (a PAT scoped to `read:packages`). Set it once:
 
   ```sh
   nomad var put nomad/jobs/bifrost \
-    ghcr_auth="$(printf '%s' '<github-username>:<PAT>' | base64)" \
+    ghcr_user='<github-username>' \
+    ghcr_pass='<PAT>' \
     kimi_api_key=… kimi_api_key_2=… bifrost_encryption_key=…
   ```
 

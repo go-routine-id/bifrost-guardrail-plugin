@@ -72,20 +72,25 @@ job "bifrost" {
         image        = var.image
         network_mode = "host"
 
-        # Pull a private GHCR image. The Docker auth file is rendered from a
-        # Nomad Variable (no credentials live in this job spec or in git).
+        # Pull a private GHCR image. Credentials are interpolated from env vars
+        # populated by the template below — no credentials live in this job spec.
         auth {
-          config = "${NOMAD_SECRETS_DIR}/dockercfg.json"
+          username = "${GHCR_USER}"
+          password = "${GHCR_PASS}"
         }
       }
 
-      # Renders ~/.docker/config.json-style auth so the node can pull the
-      # private image. `ghcr_auth` = base64("<github-username>:<PAT>"), where the
-      # PAT has read:packages scope. Stored in Nomad Variables at var.nomad_var_path.
+      # Exposes the GHCR pull credentials as env so config.auth can use them.
+      # ghcr_user / ghcr_pass come from Nomad Variables (pass = a PAT or gh token
+      # with read:packages). Stored at var.nomad_var_path.
       template {
-        destination = "secrets/dockercfg.json"
+        destination = "secrets/ghcr.env"
+        env         = true
         data        = <<EOH
-{{ with nomadVar "${var.nomad_var_path}" }}{"auths":{"ghcr.io":{"auth":"{{ .ghcr_auth }}"}}}{{ end }}
+{{ with nomadVar "${var.nomad_var_path}" }}
+GHCR_USER={{ .ghcr_user }}
+GHCR_PASS={{ .ghcr_pass }}
+{{ end }}
 EOH
       }
 
