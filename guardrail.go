@@ -32,6 +32,9 @@ type Config struct {
 	// RateLimitMessage replaces the upstream provider's message on a 429 response,
 	// so users get a clear, white-label explanation without exposing the provider.
 	RateLimitMessage string `json:"rate_limit_message"`
+	// Fallbacks are "provider/model" strings injected into each inference request,
+	// so Bifrost transparently fails over (e.g. on 429) without the client knowing.
+	Fallbacks []string `json:"fallbacks"`
 }
 
 // Plugin implements schemas.HTTPTransportPlugin.
@@ -41,6 +44,7 @@ type Plugin struct {
 	blockRes         []*regexp.Regexp
 	blockMessage     string
 	rateLimitMessage string
+	fallbacks        []string
 }
 
 // Init builds the plugin from its persisted config.
@@ -54,6 +58,11 @@ func Init(c *Config) (schemas.BasePlugin, error) {
 		}
 		if m := strings.TrimSpace(c.RateLimitMessage); m != "" {
 			p.rateLimitMessage = m
+		}
+		for _, fb := range c.Fallbacks {
+			if fb = strings.TrimSpace(fb); fb != "" {
+				p.fallbacks = append(p.fallbacks, fb)
+			}
 		}
 		for _, pat := range c.BlockPatterns {
 			re, err := regexp.Compile(pat)
@@ -99,6 +108,7 @@ func (p *Plugin) HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.
 		}
 	}
 
+	changed := false
 	if p.systemPrompt != "" {
 		switch kind {
 		case kindAnthropic:
@@ -106,6 +116,21 @@ func (p *Plugin) HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.
 		case kindOpenAI:
 			p.injectOpenAI(body)
 		}
+		changed = true
+	}
+
+	if len(p.fallbacks) > 0 {
+		if _, exists := body["fallbacks"]; !exists {
+			fb := make([]any, len(p.fallbacks))
+			for i, s := range p.fallbacks {
+				fb[i] = s
+			}
+			body["fallbacks"] = fb
+			changed = true
+		}
+	}
+
+	if changed {
 		if newBody, err := json.Marshal(body); err == nil {
 			req.Body = newBody
 		}

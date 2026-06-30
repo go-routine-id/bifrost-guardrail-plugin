@@ -117,6 +117,7 @@ EOH
 {{ with nomadVar "${var.nomad_var_path}" }}
 KIMI_API_KEY={{ .kimi_api_key }}
 KIMI_API_KEY_2={{ .kimi_api_key_2 }}
+OLLAMA_API_KEY={{ .ollama_api_key }}
 BIFROST_ENCRYPTION_KEY={{ .bifrost_encryption_key }}
 {{ end }}
 EOH
